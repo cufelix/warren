@@ -32,7 +32,8 @@ export function AddAgent({ me, token }: { me: Member; token: string }) {
         room: me.scopeRoomId,
         adapter: tool === "claude" ? "channel" : "exec",
       });
-      setCommand(agent.setup.cli?.[tool] ?? `npx warren-cli add ${tool} --hub ${location.origin} --token ${agent.token}`);
+      // The hub as this browser reaches it: teammates open the dashboard at the address they can use.
+      setCommand(`npx warren-cli add ${tool} --hub ${location.origin} --token ${agent.token}`);
     } catch (e) {
       setError((e as Error).message);
     }

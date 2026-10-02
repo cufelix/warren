@@ -8,6 +8,21 @@ import { subscribe, type HubMessage } from "../src/sse.js";
 
 const msg = (id: string, at: string): HubMessage => ({ id, roomId: "r", from: "x", kind: "note", text: id, mentions: ["me"], mentionsRoom: false, at });
 
+test("stops for good when the hub says the token is gone (401)", async () => {
+  let hits = 0;
+  const server = createServer((_req, res) => {
+    hits++;
+    res.writeHead(401).end('{"error":"unknown token"}');
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const hub = `http://localhost:${(server.address() as AddressInfo).port}`;
+  const done = subscribe(hub, "gone", () => {}, { retryMs: 10 });
+  const result = await Promise.race([done.then(() => "returned"), new Promise((r) => setTimeout(() => r("still looping"), 1000))]);
+  server.close();
+  assert.equal(result, "returned");
+  assert.equal(hits, 1);
+});
+
 test("replays missed mentions by id after a reconnect, once each", async () => {
   // Server timestamps far in the past: a time-based replay would drop m2.
   const history = [msg("m0", "2000-01-01T00:00:00.000Z")];

@@ -32,6 +32,9 @@ export function setupTeam(db: Db, name: string, fixedCode?: string): Team {
 export function joinTeam(team: Team, code: string, name: string): store.Member {
   if (code !== team.code) throw new Error("wrong join code");
   if (typeof name !== "string" || !name.trim()) throw new Error("name is required");
+  // Same name again (a second laptop, a reinstall): the same person, same token.
+  const known = store.getMember(name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
+  if (known?.kind === "human" && known.org === team.roomId) return known;
   return store.addMember({ handle: name, name: name.trim(), kind: "human", org: team.roomId, scopeRoomId: team.roomId });
 }
 

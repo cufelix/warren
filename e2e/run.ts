@@ -407,11 +407,11 @@ try {
   const [meAfter, inboxAfter, joinAgain] = await Promise.all([
     t("/api/me", agentInvite.token).then((r) => r.json()),
     t("/api/inbox", agentInvite.token).then((r) => r.json()),
-    t("/api/join", undefined, { code: "e2ecode", name: "felix" }),
+    t("/api/join", undefined, { code: "e2ecode", name: "felix" }).then((r) => r.json()),
   ]);
   check(
-    meAfter.handle === "codex-felix" && inboxAfter.length === 1 && inboxAfter[0].text.includes("login page") && joinAgain.status === 409,
-    "team: after a hub restart the agent's token, its mention and the taken name survive",
+    meAfter.handle === "codex-felix" && inboxAfter.length === 1 && inboxAfter[0].text.includes("login page") && joinAgain.token === joined.token,
+    "team: after a hub restart the agent's token and its mention survive; felix's second laptop gets the same identity",
   );
   const [otherRemove, selfRemove] = [
     await t("/api/members/felix", agentInvite.token, undefined, "DELETE"),

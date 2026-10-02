@@ -202,7 +202,8 @@ export function useHub(token: string | null) {
 
 /** The human who runs an agent, by handle suffix: claude-anna (and a second one, claude-anna-2) belongs to anna. */
 export function ownerOf(agent: Member, members: Record<string, Member>): Member | undefined {
-  const suffix = agent.handle.replace(/-\d+$/, "").split("-").at(-1);
-  const owner = suffix ? members[suffix] : undefined;
-  return owner?.kind === "human" ? owner : undefined;
+  const base = agent.handle.replace(/-\d+$/, "");
+  return Object.values(members)
+    .filter((h) => h.kind === "human" && base.endsWith(`-${h.handle}`))
+    .sort((a, b) => b.handle.length - a.handle.length)[0]; // mary-ann over ann
 }

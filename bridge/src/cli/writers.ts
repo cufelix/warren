@@ -46,7 +46,7 @@ export function wireFolder(dir: string, w: Wiring) {
   } else if (w.tool === "codex") {
     const file = join(dir, CODEX_FILE);
     const rest = stripBlock(readText(file));
-    if (/^\s*\[mcp_servers\.warren\]/m.test(rest))
+    if (/^\s*\[\s*mcp_servers\s*\.\s*["']?warren["']?\s*\]/m.test(rest))
       throw new Error(`${CODEX_FILE} already has [mcp_servers.warren] that warren-cli didn't write; remove it first`);
     const block = [BEGIN, "[mcp_servers.warren]", `url = ${tomlString(`${w.hub}/mcp`)}`, `http_headers = { "Authorization" = ${tomlString(`Bearer ${w.token}`)} }`, END];
     writeText(file, (rest && !rest.endsWith("\n") ? rest + "\n" : rest) + block.join("\n") + "\n");
@@ -67,7 +67,9 @@ export function wireFolder(dir: string, w: Wiring) {
 
 export function unwireFolder(dir: string, tool: Tool) {
   const dropWarren = (cfg: Record<string, unknown>) => {
-    const { warren: _w, ...others } = (cfg.mcpServers ?? {}) as Record<string, unknown>;
+    const servers = cfg.mcpServers as Record<string, unknown> | undefined;
+    if (!servers || !("warren" in servers)) return undefined; // nothing of ours: leave the file as it is
+    const { warren: _w, ...others } = servers;
     return { ...cfg, mcpServers: others };
   };
   if (tool === "claude") editJson(join(dir, ".mcp.json"), dropWarren, false);
@@ -80,7 +82,8 @@ export function unwireFolder(dir: string, tool: Tool) {
       join(dir, ".cursor/cli.json"),
       (cfg) => {
         const perms = (cfg.permissions ?? {}) as { allow?: string[] };
-        return { ...cfg, permissions: { ...perms, allow: (perms.allow ?? []).filter((p) => p !== "Mcp(warren:*)") } };
+        if (!perms.allow?.includes("Mcp(warren:*)")) return undefined;
+        return { ...cfg, permissions: { ...perms, allow: perms.allow.filter((p) => p !== "Mcp(warren:*)") } };
       },
       false,
     );
@@ -118,18 +121,30 @@ function writeText(file: string, text: string) {
   writeFileSync(file, text);
 }
 
-/** Read-modify-write a JSON file. With `create` false, a missing file stays missing. */
-function editJson(file: string, edit: (cfg: Record<string, unknown>) => Record<string, unknown>, create = true) {
+/**
+ * Read-modify-write a JSON file. With `create` false, a missing file stays
+ * missing; an edit that returns undefined leaves the file untouched.
+ */
+function editJson(file: string, edit: (cfg: Record<string, unknown>) => Record<string, unknown> | undefined, create = true) {
   if (!create && !existsSync(file)) return;
   const text = readText(file).trim();
-  writeText(file, JSON.stringify(edit(text ? JSON.parse(text) : {}), null, 2) + "\n");
+  let cfg: Record<string, unknown>;
+  try {
+    cfg = text ? JSON.parse(text) : {};
+  } catch (e) {
+    throw new Error(`${file} isn't plain JSON (${(e as Error).message}); fix it or add warren's entry by hand`);
+  }
+  const next = edit(cfg);
+  if (next) writeText(file, JSON.stringify(next, null, 2) + "\n");
 }
 
 function stripBlock(text: string): string {
   const start = text.indexOf(BEGIN);
   if (start === -1) return text;
   const end = text.indexOf(END, start);
-  return text.slice(0, start) + (end === -1 ? "" : text.slice(end + END.length).replace(/^\n/, ""));
+  // Never guess where our block ends: everything after it is the user's config.
+  if (end === -1) throw new Error(`${CODEX_FILE} has warren's start marker but no end marker ("${END}"); fix it by hand`);
+  return text.slice(0, start) + text.slice(end + END.length).replace(/^\n/, "");
 }
 
 function tomlString(s: string): string {

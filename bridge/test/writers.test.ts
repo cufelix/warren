@@ -84,6 +84,34 @@ test("wireFolder records the member in .warren.json; unwire deletes it", () => {
   assert.equal(existsSync(join(d, ".warren.json")), false);
 });
 
+test("codex: a managed block without its end marker is left alone, not truncated", () => {
+  const d = dir();
+  mkdirSync(join(d, ".codex"));
+  const broken = '# >>> warren (managed by warren-cli, `warren leave` removes it)\n[mcp_servers.warren]\n\n[mcp_servers.github]\nurl = "g"\n';
+  writeFileSync(join(d, ".codex/config.toml"), broken);
+  assert.throws(() => wireFolder(d, wiring("codex")), /end marker/);
+  assert.throws(() => unwireFolder(d, "codex"), /end marker/);
+  assert.equal(read(d, ".codex/config.toml"), broken);
+});
+
+test("codex: also spots a hand-written [mcp_servers.\"warren\"]", () => {
+  const d = dir();
+  mkdirSync(join(d, ".codex"));
+  writeFileSync(join(d, ".codex/config.toml"), '[ mcp_servers."warren" ]\nurl = "x"\n');
+  assert.throws(() => wireFolder(d, wiring("codex")), /already has/);
+});
+
+test("unwire doesn't touch files that never mentioned warren", () => {
+  const d = dir();
+  mkdirSync(join(d, ".cursor"));
+  writeFileSync(join(d, ".mcp.json"), '{"other":true}');
+  writeFileSync(join(d, ".cursor/cli.json"), '{"theme":"dark"}');
+  unwireFolder(d, "claude");
+  unwireFolder(d, "cursor");
+  assert.equal(read(d, ".mcp.json"), '{"other":true}');
+  assert.equal(read(d, ".cursor/cli.json"), '{"theme":"dark"}');
+});
+
 test("addGitignore appends missing entries once", () => {
   const d = dir();
   writeFileSync(join(d, ".gitignore"), "node_modules/");

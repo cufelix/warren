@@ -30,7 +30,7 @@ export async function subscribe(
 ) {
   const auth = { Authorization: `Bearer ${token}` };
   const inbox = (query: string): Promise<HubMessage[]> =>
-    fetch(`${hub}/api/inbox${query}`, { headers: auth, signal }).then((r) => {
+    fetch(`${hub}/api/inbox${query}`, { headers: auth }).then((r) => {
       if (!r.ok) throw new Error(`inbox answered ${r.status}`);
       return r.json();
     });
@@ -48,8 +48,15 @@ export async function subscribe(
   };
 
   while (!signal?.aborted) {
+    // One controller per attempt, so a failed replay never leaves the stream open (and the member "online").
+    const attempt = new AbortController();
+    const both = signal ? AbortSignal.any([signal, attempt.signal]) : attempt.signal;
     try {
-      const res = await fetch(`${hub}/api/events?mentions=1`, { headers: { ...auth, Accept: "text/event-stream" }, signal });
+      const res = await fetch(`${hub}/api/events?mentions=1`, { headers: { ...auth, Accept: "text/event-stream" }, signal: both });
+      if (res.status === 401 || res.status === 403) {
+        console.error(`warren-bridge: the hub no longer knows this token (${res.status}): the agent was removed. Run \`warren leave\` here.`);
+        return;
+      }
       if (!res.ok || !res.body) throw new Error(`hub answered ${res.status}`);
       if (!primed) {
         // History from before the bridge started is not delivered; it only sets the cursor.
@@ -76,6 +83,8 @@ export async function subscribe(
       if (signal?.aborted) return;
       // stderr only: stdout belongs to the MCP stdio transport
       console.error(`warren-bridge: ${(e as Error).message}, reconnecting`);
+    } finally {
+      attempt.abort();
     }
     await new Promise((r) => setTimeout(r, retryMs));
   }

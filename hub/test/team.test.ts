@@ -53,13 +53,29 @@ test("joinTeam creates a person in the team's org and root room", () => {
   db.close();
 });
 
-test("joinTeam refuses a wrong code and a taken name", () => {
+test("joinTeam refuses a wrong code and an empty name", () => {
   const db = openDb(file);
   const team = setupTeam(db, "crew");
   assert.throws(() => joinTeam(team, "nope", "felix"), /join code/);
-  joinTeam(team, team.code, "felix");
-  assert.throws(() => joinTeam(team, team.code, "Felix"), /taken/);
   assert.throws(() => joinTeam(team, team.code, "  "), /name/);
+  db.close();
+});
+
+test("joining again with the same name (a second laptop) returns the same person", () => {
+  const db = openDb(file);
+  const team = setupTeam(db, "crew");
+  const first = joinTeam(team, team.code, "felix");
+  const again = joinTeam(team, team.code, "Felix");
+  assert.equal(again.token, first.token);
+  assert.equal(store.allMembers().length, 1);
+  db.close();
+});
+
+test("a name held by an agent can't be joined as a person", () => {
+  const db = openDb(file);
+  const team = setupTeam(db, "crew");
+  store.addMember({ handle: "claude-x", name: "c", org: "crew", scopeRoomId: "crew" });
+  assert.throws(() => joinTeam(team, team.code, "claude-x"), /taken/);
   db.close();
 });
 

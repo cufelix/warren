@@ -108,7 +108,7 @@ app.post("/api/join", (req, res) => {
   if (!team) return void res.status(404).json({ error: "this hub has no team (start it with WARREN_TEAM=<name>)" });
   try {
     const m = joinTeam(team, String(req.body?.code ?? ""), String(req.body?.name ?? ""));
-    res.status(201).json({ hub: PUBLIC_URL, team: team.name, room: team.roomId, handle: m.handle, token: m.token });
+    res.status(201).json({ hub: baseUrl(req), team: team.name, room: team.roomId, handle: m.handle, token: m.token });
   } catch (e) {
     const msg = (e as Error).message;
     httpError(res, msg.includes("join code") ? 403 : msg.includes("taken") ? 409 : 400, e);
@@ -162,7 +162,7 @@ app.post("/api/invites", (req, res) => {
       scopeRoomId: b.room,
       adapter: b.adapter,
     });
-    res.status(201).json({ ...invited, invitedBy: m?.handle ?? null, setup: setupSnippets(invited) });
+    res.status(201).json({ ...invited, invitedBy: m?.handle ?? null, setup: setupSnippets(invited, baseUrl(req)) });
   } catch (e) {
     httpError(res, 400, e);
   }
@@ -488,7 +488,12 @@ app.get(["/app", "/app/", "/app.html"], (_req, res) =>
 app.get("/api/config", (_req, res) => void res.json({ dashboard: DASHBOARD_OPEN, team: team?.name ?? null }));
 app.use(express.static(WEB));
 
-function setupSnippets(m: store.Member) {
+/** The hub's address as the caller reached it, unless PUBLIC_URL pins it. */
+function baseUrl(req: Request): string {
+  return process.env.PUBLIC_URL ?? `${req.protocol}://${req.get("host")}`;
+}
+
+function setupSnippets(m: store.Member, PUBLIC_URL: string) {
   if (m.kind === "human") return { dashboard: `${PUBLIC_URL}/app?token=${m.token}` };
   return {
     // One command in the agent's project folder writes its config (see warren-cli).

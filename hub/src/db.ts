@@ -40,9 +40,17 @@ export function openDb(file: string): Db {
   const saveAudit = db.prepare("INSERT OR IGNORE INTO audit (id, json) VALUES (?, ?)");
 
   const offs: (() => void)[] = [];
+  // A failed write is logged, never thrown: it must not stop the other listeners (SSE delivery).
   const on = <T>(event: string, fn: (payload: T) => void) => {
-    store.events.on(event, fn);
-    offs.push(() => store.events.off(event, fn));
+    const safe = (payload: T) => {
+      try {
+        fn(payload);
+      } catch (e) {
+        console.error(`warren db: saving ${event} failed: ${(e as Error).message}`);
+      }
+    };
+    store.events.on(event, safe);
+    offs.push(() => store.events.off(event, safe));
   };
   on<store.Room>("room", (r) => saveRoom.run(r.id, JSON.stringify({ ...r, messages: [] })));
   on<store.PublicMember>("member", (pm) => {

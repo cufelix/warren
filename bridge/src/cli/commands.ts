@@ -73,7 +73,14 @@ export async function add(dir: string, toolArg: string | undefined, opts: { as?:
     });
   }
 
-  wireFolder(dir, { tool, hub, token: agent.token, handle: agent.handle, bridge: opts.bridge });
+  if (existing) unwireFolder(dir, existing.tool); // --token over a wired folder: replace, don't stack
+  try {
+    wireFolder(dir, { tool, hub, token: agent.token, handle: agent.handle, bridge: opts.bridge });
+  } catch (e) {
+    // Don't leave a member behind that no folder holds the token of.
+    if (!opts.token) await hubCall(hub, `/api/members/${agent.handle}`, { token: agent.token, method: "DELETE" }).catch(() => {});
+    throw e;
+  }
   addGitignore(dir, tokenFiles(tool));
   console.log(`This folder's ${tool} is now @${agent.handle}.`);
   if (tool === "claude") console.log("Start Claude Code here with:\n  claude --dangerously-load-development-channels server:warren");
@@ -87,7 +94,10 @@ export async function leave(dir: string) {
   try {
     await hubCall(f.hub, `/api/members/${f.handle}`, { token: f.token, method: "DELETE" });
   } catch (e) {
-    console.error(`warning: hub didn't remove @${f.handle}: ${(e as Error).message}. Cleaning the folder anyway.`);
+    const msg = (e as Error).message;
+    // Unreachable hub: keep the token so `warren leave` can be retried. Unknown token: already gone.
+    if (msg.startsWith("can't reach")) throw new Error(`${msg}; nothing changed, try again when the hub is back`);
+    console.error(`note: hub says ${msg}; cleaning the folder.`);
   }
   unwireFolder(dir, f.tool);
   console.log(`@${f.handle} left; this folder's ${f.tool} config no longer mentions warren.`);

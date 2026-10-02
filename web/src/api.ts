@@ -92,8 +92,13 @@ async function call<T>(path: string, token: string | null, init: RequestInit = {
 export const api = {
   login: (handle: string) => call<Member & { token: string }>("/api/login", null, { method: "POST", body: JSON.stringify({ handle }) }),
   me: (token: string) => call<Member>("/api/me", token),
-  members: () => call<Member[]>("/api/members", null),
-  roomMembers: (room: string) => call<Member[]>(`/api/members?room=${encodeURIComponent(room)}`, null),
+  // With a token: the viewer's contacts (a team hub answers 401 without one). Without: the demo overview.
+  members: (token: string | null) => call<Member[]>("/api/members", token),
+  roomMembers: (room: string, token: string | null) => call<Member[]>(`/api/members?room=${encodeURIComponent(room)}`, token),
+  invite: (token: string, body: { name: string; handle?: string; kind: "agent"; org: string; room: string; adapter: Adapter }) =>
+    call<Member & { token: string; setup: { cli?: Record<string, string> } }>("/api/invites", token, { method: "POST", body: JSON.stringify(body) }),
+  removeMember: (token: string, handle: string) =>
+    call<Member>(`/api/members/${encodeURIComponent(handle)}`, token, { method: "DELETE" }),
   rooms: (token: string | null) => call<Room[]>("/api/rooms", token),
   post: (token: string, room: string, kind: MessageKind, text: string) =>
     call<Message>(`/api/rooms/${encodeURIComponent(room)}/messages`, token, { method: "POST", body: JSON.stringify({ kind, text }) }),
@@ -152,7 +157,7 @@ export function useHub(token: string | null) {
       .audit(token)
       .then((a) => !closed && setAudit(a))
       .catch(() => {});
-    Promise.all([api.rooms(token), api.members()])
+    Promise.all([api.rooms(token), api.members(token)])
       .then(([rs, ms]) => {
         if (closed) return;
         setRooms(Object.fromEntries(rs.map((r) => [r.id, r])));
@@ -172,6 +177,10 @@ export function useHub(token: string | null) {
     es.addEventListener("member", (e) => {
       const m: Member = JSON.parse((e as MessageEvent).data);
       setMembers((prev) => ({ ...prev, [m.handle]: { ...prev[m.handle], ...m } }));
+    });
+    es.addEventListener("member_removed", (e) => {
+      const { handle }: { handle: string } = JSON.parse((e as MessageEvent).data);
+      setMembers(({ [handle]: _gone, ...rest }) => rest);
     });
     es.addEventListener("message_update", (e) => updateMessage(JSON.parse((e as MessageEvent).data)));
     es.addEventListener("presence", (e) => {

@@ -376,6 +376,10 @@ app.get("/api/events", (req: Request, res: Response) => {
   const onMember = (pm: store.PublicMember) => {
     if (!mentionsOnly && knows(pm.handle)) send("member", pm);
   };
+  // Sent to everyone: the member is gone, so there's no room left to check.
+  const onMemberRemoved = (handle: string) => {
+    if (!mentionsOnly) send("member_removed", { handle });
+  };
   const onPresence = (p: { handle: string; online: boolean }) => {
     if (!mentionsOnly && knows(p.handle)) send("presence", p);
   };
@@ -389,6 +393,7 @@ app.get("/api/events", (req: Request, res: Response) => {
   store.events.on("room", onRoom);
   store.events.on("member", onMember);
   store.events.on("presence", onPresence);
+  store.events.on("member_removed", onMemberRemoved);
   store.events.on("audit", onAudit);
   if (m) store.trackConnection(m, 1);
   req.on("close", () => {
@@ -398,6 +403,7 @@ app.get("/api/events", (req: Request, res: Response) => {
     store.events.off("room", onRoom);
     store.events.off("member", onMember);
     store.events.off("presence", onPresence);
+    store.events.off("member_removed", onMemberRemoved);
     store.events.off("audit", onAudit);
     if (m) store.trackConnection(m, -1);
   });

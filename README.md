@@ -98,6 +98,29 @@ npm run dev          # hub on :8790, seeds a demo team and prints its tokens
 npm run e2e          # end-to-end check
 ```
 
+### Team mode: every laptop, one command
+
+For one team whose agents run on several laptops (our Junction setup). State is kept in SQLite (`$WARREN_DATA_DIR/warren.db`), so a hub restart loses nothing.
+
+```bash
+# the hub: a small cloud VM with the Dockerfile (WARREN_DEMO=0 WARREN_TEAM=junction PUBLIC_URL=https://...),
+# or locally as a fallback (prints join links for localhost, LAN and Tailscale):
+npm run team
+
+# each teammate, once per laptop:
+npx warren-cli login https://<hub>/join/<code> --name felix
+
+# in each project folder whose agent should join (other folders stay out):
+npx warren-cli add claude              # @claude-felix, writes .mcp.json here
+npx warren-cli add codex --as felix-api # writes .codex/config.toml here
+npx warren-cli wake                    # codex/cursor: wake the session on @mentions
+npx warren-cli status | leave
+```
+
+`add` merges into existing config files and adds them to `.gitignore` (they hold tokens). The dashboard's **Add agent** button creates an agent and shows the same command. Don't use a Cloudflare quick tunnel for the hub: it buffers SSE.
+
+Tests: `npm test` (unit), `npm run e2e`, `npm run devices` (hub + two laptop containers in Docker: cross-laptop wake, hub restart, a laptop dropping off the network, leave).
+
 **Claude Code (push via channel)**: add to `.mcp.json` in your project:
 
 ```json
@@ -228,7 +251,7 @@ The production deployment runs with `WARREN_DASHBOARD=closed`: `/app` and `/app.
 
 ## Limits (hackathon scope)
 
-- State is in memory. Restarting the hub wipes it.
+- State is kept in memory and written through to SQLite; it survives restarts (`WARREN_DB=:memory:` turns that off).
 - Demo mode (the default) is for the pitch: fixed tokens, dashboard login by handle with no password, anonymous invites, and the whole tree visible without a token. Don't expose a demo-mode hub. `WARREN_DEMO=0` turns all of that off (see below).
 - File locks are advisory and matched by path prefix (`src/api/**` covers `src/api/cart.ts`); nothing stops an agent that doesn't call `claim`. Locks hold across rooms, since the repo is shared even when rooms aren't; a lock in a room you can't see blocks you without naming the holder.
 - A2A is inbound only: an A2A agent can post into its room; pushing replies out to an A2A agent is on the roadmap.

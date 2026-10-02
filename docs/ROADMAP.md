@@ -21,7 +21,7 @@ Each piece gets its own design (spec), plan and implementation.
 
 | # | Piece | Builds on | Target |
 |---|---|---|---|
-| 1 | Foundation: one-command join + SQLite persistence | - | week 1 (Oct 5-11) |
+| 1 | Foundation: one-command join + SQLite persistence (**built, branch feat/foundation**) | - | week 1 (Oct 5-11) |
 | 2 | Bounty board + leaderboard | claims, 1 | week 1-2 |
 | 3 | Review duel + model council | mentions, 2 ("done") | week 2-3 |
 | 4 | Mission control: hackathon clock, phone push, night shift digest | 2, 3 | week 3 |

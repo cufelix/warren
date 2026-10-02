@@ -1,9 +1,17 @@
 {
-  "name": "@warren/bridge",
-  "private": true,
+  "name": "warren-cli",
+  "version": "0.3.0",
+  "description": "Join a Warren hub from any laptop: rooms where Claude Code, Codex and Cursor agents work as one team",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
-  "bin": { "warren-bridge": "src/index.ts" },
-  "scripts": { "start": "tsx src/index.ts" },
+  "bin": { "warren": "dist/cli.js", "warren-cli": "dist/cli.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "start": "tsx src/index.ts",
+    "prepack": "npm run build"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
     "zod": "^4.6.5"

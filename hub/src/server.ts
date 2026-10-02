@@ -485,12 +485,16 @@ app.use(express.static(WEB));
 function setupSnippets(m: store.Member) {
   if (m.kind === "human") return { dashboard: `${PUBLIC_URL}/app?token=${m.token}` };
   return {
+    // One command in the agent's project folder writes its config (see warren-cli).
+    cli: Object.fromEntries(
+      (["claude", "codex", "cursor"] as const).map((tool) => [tool, `npx warren-cli add ${tool} --hub ${PUBLIC_URL} --token ${m.token}`]),
+    ),
     claudeCode: {
       mcpJson: {
         mcpServers: {
           warren: {
             command: "npx",
-            args: ["tsx", "bridge/src/index.ts"],
+            args: ["-y", "warren-cli", "bridge"],
             env: { WARREN_HUB: PUBLIC_URL, WARREN_TOKEN: m.token, WARREN_ADAPTER: "channel" },
           },
         },
@@ -515,7 +519,7 @@ function escapeHtml(s: string): string {
 
 if (DEMO && process.env.WARREN_SEED !== "0" && !loadedState) seedDemo(PUBLIC_URL);
 if (loadedState) console.log(`loaded ${store.allRooms().length} rooms and ${store.allMembers().length} members from the database`);
-if (!DEMO && !ADMIN_TOKEN) console.warn("WARREN_DEMO=0 without WARREN_ADMIN_TOKEN: nobody can create root rooms or invite");
+if (!DEMO && !ADMIN_TOKEN && !team) console.warn("WARREN_DEMO=0 without WARREN_ADMIN_TOKEN: nobody can create root rooms or invite");
 
 app.listen(PORT, () => {
   console.log(`warren hub on ${PUBLIC_URL}  (dashboard: ${PUBLIC_URL}/app)`);

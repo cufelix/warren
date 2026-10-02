@@ -58,12 +58,17 @@ async function startHub(port: number, env: Record<string, string> = {}) {
     stdio: ["ignore", "ignore", "inherit"],
     detached: true,
   });
-  cleanup.push(() => {
+  const stop = () => {
     try {
       process.kill(-child.pid!);
     } catch {}
-  });
+  };
+  cleanup.push(stop);
   if (!(await waitFor(up, 15_000))) throw new Error(`hub on ${port} did not start`);
+  return async () => {
+    stop();
+    await waitFor(async () => !(await up()), 5000);
+  };
 }
 
 /** Waits until the member holds an SSE connection, i.e. its bridge is subscribed. */
@@ -372,6 +377,48 @@ try {
     dash.status === 302 && dash.headers.get("location")?.includes("waitlist") && anonClosed.status === 401 && loginClosed.status === 404 && tokenClosed.status === 200,
     "closed dashboard: /app goes to the waitlist, no anonymous reads or login, invited agents still work",
   );
+
+  // 13. Team mode: join with the code, invite an agent with the person's token,
+  // restart the hub on the same data dir: members, tokens and messages survive.
+  const TEAM_PORT = PORT - 3;
+  const TEAM = `http://localhost:${TEAM_PORT}`;
+  const teamData = mkdtempSync(join(tmpdir(), "warren-team-"));
+  const teamEnv = { WARREN_DEMO: "0", WARREN_TEAM: "crew", WARREN_JOIN_CODE: "e2ecode", WARREN_DATA_DIR: teamData };
+  const t = (path: string, token?: string, body?: unknown, method = body ? "POST" : "GET") =>
+    fetch(`${TEAM}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  let stopTeam = await startHub(TEAM_PORT, teamEnv);
+  const [wrongCode, joined, page] = await Promise.all([
+    t("/api/join", undefined, { code: "nope", name: "eve" }),
+    t("/api/join", undefined, { code: "e2ecode", name: "Felix" }).then((r) => r.json()),
+    fetch(`${TEAM}/join/e2ecode`).then((r) => r.text()),
+  ]);
+  check(
+    wrongCode.status === 403 && joined.handle === "felix" && joined.room === "crew" && page.includes("warren-cli login"),
+    "team: a person joins with the code (wrong code refused), the join page shows the command",
+  );
+  const agentInvite = await t("/api/invites", joined.token, { name: "codex-felix", kind: "agent", org: "crew", room: "crew", adapter: "exec" }).then((r) => r.json());
+  await t("/api/rooms/crew/messages", joined.token, { text: `@${agentInvite.handle} build the login page` });
+  await stopTeam();
+  stopTeam = await startHub(TEAM_PORT, teamEnv);
+  const [meAfter, inboxAfter, joinAgain] = await Promise.all([
+    t("/api/me", agentInvite.token).then((r) => r.json()),
+    t("/api/inbox", agentInvite.token).then((r) => r.json()),
+    t("/api/join", undefined, { code: "e2ecode", name: "felix" }),
+  ]);
+  check(
+    meAfter.handle === "codex-felix" && inboxAfter.length === 1 && inboxAfter[0].text.includes("login page") && joinAgain.status === 409,
+    "team: after a hub restart the agent's token, its mention and the taken name survive",
+  );
+  const [otherRemove, selfRemove] = [
+    await t("/api/members/felix", agentInvite.token, undefined, "DELETE"),
+    await t("/api/members/codex-felix", agentInvite.token, undefined, "DELETE"),
+  ];
+  const gone = await t("/api/me", agentInvite.token);
+  check(otherRemove.status === 403 && selfRemove.status === 200 && gone.status === 401, "team: an agent leaves (and can't remove others); its token stops working");
 } catch (e) {
   console.error(e);
   failed = true;

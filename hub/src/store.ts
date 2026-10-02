@@ -80,7 +80,8 @@ const members = new Map<string, Member>(); // by handle
 const byToken = new Map<string, Member>();
 
 // Emits "message" (Message), "message_update" (Message whose safety status
-// changed), "room" (Room), "member" (PublicMember) and "presence" ({ handle, online }).
+// changed), "room" (Room), "member" (PublicMember), "member_removed" (handle),
+// "audit" (AuditEvent) and "presence" ({ handle, online }).
 export const events = new EventEmitter();
 events.setMaxListeners(0);
 
@@ -157,6 +158,28 @@ export function addMember(input: {
   byToken.set(member.token, member);
   events.emit("member", publicMember(member));
   return member;
+}
+
+/**
+ * Removes a member: an agent removes itself, or a person of the agent's own
+ * org removes it. Its claims (and file locks) are released.
+ */
+export function removeMember(actor: Member, handle: string): Member {
+  const target = getMember(handle);
+  if (!target) throw new Error(`no such member @${handle}`);
+  const self = actor.handle === target.handle;
+  const ownersPerson = actor.kind === "human" && target.kind === "agent" && actor.org === target.org;
+  if (!self && !ownersPerson) throw new Error(`only @${target.handle} itself or a person of ${target.org} can remove it`);
+  members.delete(target.handle);
+  byToken.delete(target.token);
+  connections.delete(target.handle);
+  for (const room of rooms.values()) {
+    const before = room.claims.length;
+    room.claims = room.claims.filter((c) => c.by !== target.handle);
+    if (room.claims.length !== before) events.emit("room", room);
+  }
+  events.emit("member_removed", target.handle);
+  return target;
 }
 
 export function byTokenValue(token: string | undefined): Member | undefined {
@@ -452,6 +475,27 @@ export function release(m: Member, claimId: string, force = false): Claim {
     return c;
   }
   throw new Error(`no such claim ${claimId}`);
+}
+
+// --- persistence and tests ---------------------------------------------------
+
+/** Loads saved state into memory without emitting events (see db.ts). */
+export function hydrate(data: { rooms: Room[]; members: Member[]; audit: AuditEvent[] }) {
+  for (const r of data.rooms) rooms.set(r.id, r);
+  for (const m of data.members) {
+    members.set(m.handle, m);
+    byToken.set(m.token, m);
+  }
+  auditLog.push(...data.audit);
+}
+
+/** Forgets everything (tests). */
+export function reset() {
+  rooms.clear();
+  members.clear();
+  byToken.clear();
+  connections.clear();
+  auditLog.length = 0;
 }
 
 // --- helpers ---------------------------------------------------------------

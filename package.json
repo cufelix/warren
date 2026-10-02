@@ -2,13 +2,18 @@
   "name": "warren",
   "private": true,
   "type": "module",
-  "workspaces": ["hub", "bridge", "web"],
+  "workspaces": [
+    "hub",
+    "bridge",
+    "web"
+  ],
   "scripts": {
     "dev": "npm run dev -w hub",
     "dev:web": "npm run dev -w web",
     "build": "npm run build -w web",
     "e2e": "tsx e2e/run.ts",
-    "typecheck": "tsc -p hub && tsc -p bridge"
+    "typecheck": "tsc -p hub && tsc -p bridge",
+    "test": "node --import tsx --test --test-reporter=spec \"hub/test/*.test.ts\" \"bridge/test/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

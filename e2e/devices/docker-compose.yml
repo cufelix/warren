@@ -1,0 +1,28 @@
+# Three "devices" for the multi-device test: the hub and two laptops.
+# Each container has its own hostname, filesystem and network interface;
+# the test cuts a laptop off the network with `docker network disconnect`.
+name: warren-devices
+services:
+  hub:
+    build: { context: ../.., dockerfile: Dockerfile, args: { NODE_IMAGE: node:22-bookworm-slim } }
+    hostname: hub
+    environment:
+      WARREN_DEMO: "0"
+      WARREN_TEAM: junction
+      WARREN_JOIN_CODE: devices
+      PUBLIC_URL: http://hub:3000
+    volumes: [hubdata:/data]
+    ports: ["18790:3000"]
+    networks: [venue]
+  laptop-a:
+    build: laptop
+    hostname: laptop-a
+    networks: [venue]
+  laptop-b:
+    build: laptop
+    hostname: laptop-b
+    networks: [venue]
+volumes:
+  hubdata:
+networks:
+  venue:

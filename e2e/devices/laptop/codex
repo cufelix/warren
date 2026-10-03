@@ -1,0 +1,19 @@
+#!/usr/bin/env node
+// Stub Codex CLI. `warren wake` runs `codex exec resume <session|--last> "<prompt>"`.
+// It logs the prompt, then answers like a real agent would: through the hub,
+// with the token from this folder's .codex/config.toml, @mentioning the sender.
+import { appendFileSync, readFileSync } from "node:fs";
+const prompt = process.argv.at(-1);
+appendFileSync("/tmp/codex-calls.log", JSON.stringify({ args: process.argv.slice(2, -1), prompt }) + "\n");
+const toml = readFileSync(".codex/config.toml", "utf8");
+const url = toml.match(/^url = "(.*)\/mcp"$/m)[1];
+const token = toml.match(/Bearer ([^"]+)/)[1];
+const from = prompt.match(/from @([a-z0-9_-]+)/)[1];
+const room = prompt.match(/in room "([^"]+)"/)[1];
+const task = prompt.split("\n")[1].replace(/@[a-z0-9_-]+\s*/g, "").trim();
+const res = await fetch(`${url}/api/rooms/${room}/messages`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ kind: "done", text: `@${from} done: ${task}` }),
+});
+process.exit(res.ok ? 0 : 1);

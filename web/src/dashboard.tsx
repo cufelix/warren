@@ -13,6 +13,7 @@ import {
   ProhibitIcon,
   ShieldCheckIcon,
   ShieldWarningIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import "@fontsource-variable/outfit";
 import "@fontsource-variable/inter";
@@ -38,6 +39,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AddAgent } from "./AddAgent";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "./Logo";
@@ -260,8 +262,8 @@ function RoomView({
     .map((m) => `${m.handle}:${m.paused ? 1 : 0}${m.online ? 1 : 0}`)
     .join(",");
   useEffect(() => {
-    api.roomMembers(room.id).then(setInRoom, () => setInRoom([]));
-  }, [room.id, memberCount, memberState]);
+    api.roomMembers(room.id, token).then(setInRoom, () => setInRoom([]));
+  }, [room.id, token, memberCount, memberState]);
 
   const path: Room[] = [];
   for (let r: Room | undefined = room; r; r = r.parentId ? rooms[r.parentId] : undefined) path.unshift(r);
@@ -774,6 +776,7 @@ function MembersPanel({
     <aside aria-label="Who is in this room" className="hidden min-h-0 overflow-y-auto border-l border-border px-5 py-6 xl:block">
       <h2 className="mb-5 font-heading text-base">In this room</h2>
       <div className="flex flex-col gap-6">
+        {me?.kind === "human" && token && <AddAgent me={me} token={token} />}
         {orgs.map((org) => (
           <section key={org} className="flex flex-col gap-3">
             <h3 className="font-sans text-xs font-medium tracking-normal text-muted-foreground">
@@ -875,6 +878,17 @@ function MemberRow({ m, me, token }: { m: Member; me: Member | null; token: stri
           onClick={() => api.pause(token!, m.handle, !m.paused).catch(() => {})}
         >
           {m.paused ? <PlayIcon weight="fill" /> : <PauseIcon weight="fill" />}
+        </Button>
+      )}
+      {canPause && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Remove ${m.name}`}
+          title="Remove from the team"
+          onClick={() => confirm(`Remove @${m.handle}? Its token stops working.`) && api.removeMember(token!, m.handle).catch(() => {})}
+        >
+          <XIcon />
         </Button>
       )}
     </div>

@@ -4,9 +4,12 @@ import express, { type Request, type Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import * as store from "./store.js";
 import { createMcpServer } from "./mcp.js";
 import { seedDemo } from "./seed.js";
+import { openDb } from "./db.js";
+import { joinTeam, joinUrls, lanAddresses, setupTeam } from "./team.js";
 import { joinWaitlist, RateLimited, waitlistCount, waitlistEntries } from "./waitlist.js";
 import { sendWaitlistConfirmation } from "./email.js";
 
@@ -35,6 +38,12 @@ const DEMO = process.env.WARREN_DEMO !== "0";
 const DASHBOARD_OPEN = process.env.WARREN_DASHBOARD !== "closed";
 const OPEN_DOORS = DEMO && DASHBOARD_OPEN;
 const ADMIN_TOKEN = process.env.WARREN_ADMIN_TOKEN;
+
+// State lives in memory and is written through to SQLite (see db.ts).
+const db = openDb(process.env.WARREN_DB ?? join(process.env.WARREN_DATA_DIR ?? "data", "warren.db"));
+const loadedState = !db.isEmpty();
+// Team mode: one root room and a join code for the whole team (see team.ts).
+const team = process.env.WARREN_TEAM ? setupTeam(db, process.env.WARREN_TEAM, process.env.WARREN_JOIN_CODE) : undefined;
 
 /** `Authorization: Bearer <token>`, or `?token=` (EventSource can't set headers). */
 function presentedToken(req: Request): string | undefined {
@@ -94,6 +103,31 @@ app.post("/api/login", (req, res) => {
   res.json(m);
 });
 
+// Team mode: a person joins with the team's code and a name, and gets a token.
+app.post("/api/join", (req, res) => {
+  if (!team) return void res.status(404).json({ error: "this hub has no team (start it with WARREN_TEAM=<name>)" });
+  try {
+    const m = joinTeam(team, String(req.body?.code ?? ""), String(req.body?.name ?? ""));
+    res.status(201).json({ hub: baseUrl(req), team: team.name, room: team.roomId, handle: m.handle, token: m.token });
+  } catch (e) {
+    const msg = (e as Error).message;
+    httpError(res, msg.includes("join code") ? 403 : msg.includes("taken") ? 409 : 400, e);
+  }
+});
+
+// Someone clicked the join link: tell them the one command to run.
+app.get("/join/:code", (req, res) => {
+  if (!team || req.params.code !== team.code) return void res.status(404).send("No such team link.");
+  const url = `${req.protocol}://${req.get("host")}/join/${team.code}`;
+  res.type("html").send(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Join ${escapeHtml(team.name)}</title>` +
+      `<body style="font:16px system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem">` +
+      `<h1>Join ${escapeHtml(team.name)} on Warren</h1><p>On your laptop, run:</p>` +
+      `<pre style="background:#eee;padding:1rem;overflow:auto">npx warren-cli login ${escapeHtml(url)} --name &lt;you&gt;</pre>` +
+      `<p>Then, in each project folder whose agent should join: <code>npx warren-cli add claude</code> (or <code>codex</code>, <code>cursor</code>).</p>`,
+  );
+});
+
 app.get("/api/me", (req, res) => {
   const m = requireCaller(req, res);
   if (m) res.json(store.publicMember(m));
@@ -128,7 +162,7 @@ app.post("/api/invites", (req, res) => {
       scopeRoomId: b.room,
       adapter: b.adapter,
     });
-    res.status(201).json({ ...invited, invitedBy: m?.handle ?? null, setup: setupSnippets(invited) });
+    res.status(201).json({ ...invited, invitedBy: m?.handle ?? null, setup: setupSnippets(invited, baseUrl(req)) });
   } catch (e) {
     httpError(res, 400, e);
   }
@@ -237,6 +271,17 @@ app.post("/api/messages/:id/review", (req, res) => {
 
 // --- Human in the loop -------------------------------------------------------
 
+// An agent leaves, or a person of its org removes it.
+app.delete("/api/members/:handle", (req, res) => {
+  const m = requireCaller(req, res);
+  if (!m) return;
+  try {
+    res.json(store.publicMember(store.removeMember(m, req.params.handle)));
+  } catch (e) {
+    httpError(res, (e as Error).message.startsWith("no such") ? 404 : 403, e);
+  }
+});
+
 // A person stops or resumes an agent of their own org.
 app.post("/api/members/:handle/pause", (req, res) => {
   const m = requireCaller(req, res);
@@ -331,6 +376,12 @@ app.get("/api/events", (req: Request, res: Response) => {
   const onMember = (pm: store.PublicMember) => {
     if (!mentionsOnly && knows(pm.handle)) send("member", pm);
   };
+  // Sent to everyone: the member is gone, so there's no room left to check.
+  // The removed member's own streams end: its bridge reconnects, gets 401 and stops.
+  const onMemberRemoved = (handle: string) => {
+    if (m?.handle === handle) return void res.end();
+    if (!mentionsOnly) send("member_removed", { handle });
+  };
   const onPresence = (p: { handle: string; online: boolean }) => {
     if (!mentionsOnly && knows(p.handle)) send("presence", p);
   };
@@ -344,6 +395,7 @@ app.get("/api/events", (req: Request, res: Response) => {
   store.events.on("room", onRoom);
   store.events.on("member", onMember);
   store.events.on("presence", onPresence);
+  store.events.on("member_removed", onMemberRemoved);
   store.events.on("audit", onAudit);
   if (m) store.trackConnection(m, 1);
   req.on("close", () => {
@@ -353,8 +405,9 @@ app.get("/api/events", (req: Request, res: Response) => {
     store.events.off("room", onRoom);
     store.events.off("member", onMember);
     store.events.off("presence", onPresence);
+    store.events.off("member_removed", onMemberRemoved);
     store.events.off("audit", onAudit);
-    if (m) store.trackConnection(m, -1);
+    if (m && store.getMember(m.handle) === m) store.trackConnection(m, -1);
   });
 });
 
@@ -434,18 +487,27 @@ const WEB = fileURLToPath(new URL("../../web/dist", import.meta.url));
 app.get(["/app", "/app/", "/app.html"], (_req, res) =>
   DASHBOARD_OPEN ? res.sendFile("app.html", { root: WEB }) : res.redirect(302, "/?waitlist=1#waitlist"),
 );
-app.get("/api/config", (_req, res) => void res.json({ dashboard: DASHBOARD_OPEN }));
+app.get("/api/config", (_req, res) => void res.json({ dashboard: DASHBOARD_OPEN, team: team?.name ?? null }));
 app.use(express.static(WEB));
 
-function setupSnippets(m: store.Member) {
+/** The hub's address as the caller reached it, unless PUBLIC_URL pins it. */
+function baseUrl(req: Request): string {
+  return process.env.PUBLIC_URL ?? `${req.protocol}://${req.get("host")}`;
+}
+
+function setupSnippets(m: store.Member, PUBLIC_URL: string) {
   if (m.kind === "human") return { dashboard: `${PUBLIC_URL}/app?token=${m.token}` };
   return {
+    // One command in the agent's project folder writes its config (see warren-cli).
+    cli: Object.fromEntries(
+      (["claude", "codex", "cursor"] as const).map((tool) => [tool, `npx warren-cli add ${tool} --hub ${PUBLIC_URL} --token ${m.token}`]),
+    ),
     claudeCode: {
       mcpJson: {
         mcpServers: {
           warren: {
             command: "npx",
-            args: ["tsx", "bridge/src/index.ts"],
+            args: ["-y", "warren-cli", "bridge"],
             env: { WARREN_HUB: PUBLIC_URL, WARREN_TOKEN: m.token, WARREN_ADAPTER: "channel" },
           },
         },
@@ -464,7 +526,17 @@ function setupSnippets(m: store.Member) {
   };
 }
 
-if (DEMO && process.env.WARREN_SEED !== "0") seedDemo(PUBLIC_URL);
-if (!DEMO && !ADMIN_TOKEN) console.warn("WARREN_DEMO=0 without WARREN_ADMIN_TOKEN: nobody can create root rooms or invite");
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
-app.listen(PORT, () => console.log(`warren hub on ${PUBLIC_URL}  (dashboard: ${PUBLIC_URL}/app)`));
+if (DEMO && process.env.WARREN_SEED !== "0" && !loadedState) seedDemo(PUBLIC_URL);
+if (loadedState) console.log(`loaded ${store.allRooms().length} rooms and ${store.allMembers().length} members from the database`);
+if (!DEMO && !ADMIN_TOKEN && !team) console.warn("WARREN_DEMO=0 without WARREN_ADMIN_TOKEN: nobody can create root rooms or invite");
+
+app.listen(PORT, () => {
+  console.log(`warren hub on ${PUBLIC_URL}  (dashboard: ${PUBLIC_URL}/app)`);
+  if (!team) return;
+  const urls = joinUrls(team.code, { publicUrl: process.env.PUBLIC_URL, port: PORT, lan: lanAddresses() });
+  console.log(`team "${team.name}": join with\n${urls.map((u) => `  npx warren-cli login ${u} --name <you>`).join("\n")}`);
+});

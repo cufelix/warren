@@ -1,6 +1,7 @@
 # Warren hub + built web (landing and dashboard) in one container.
 # Coolify: build pack "dockerfile", port 3000, health check /.well-known/agent-card.json.
-FROM node:24-alpine
+ARG NODE_IMAGE=node:24-alpine
+FROM ${NODE_IMAGE}
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.base.json ./

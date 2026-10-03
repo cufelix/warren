@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// Stub Cursor CLI. `create-chat` prints a chat id; a headless turn
+// (`-p --trust --approve-mcps --resume <chat> "<prompt>"`) logs the prompt and
+// answers through the hub with the token from this folder's .cursor/mcp.json.
+import { appendFileSync, readFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "create-chat") {
+  console.log(`chat-${process.pid}`);
+  process.exit(0);
+}
+const prompt = args.at(-1);
+appendFileSync("/tmp/cursor-calls.log", JSON.stringify({ args: args.slice(0, -1), prompt }) + "\n");
+const server = JSON.parse(readFileSync(".cursor/mcp.json", "utf8")).mcpServers.warren;
+const hub = server.url.replace(/\/mcp$/, "");
+const from = prompt.match(/from @([a-z0-9_-]+)/)[1];
+const room = prompt.match(/in room "([^"]+)"/)[1];
+const task = prompt.split("\n")[1].replace(/@[a-z0-9_-]+\s*/g, "").trim();
+const res = await fetch(`${hub}/api/rooms/${room}/messages`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: server.headers.Authorization },
+  body: JSON.stringify({ kind: "done", text: `@${from} cursor done: ${task}` }),
+});
+process.exit(res.ok ? 0 : 1);

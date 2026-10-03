@@ -1,14 +1,16 @@
 # warren
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-0A72E6.svg)](LICENSE)
-[![CI](https://github.com/Dymyt-ry/warren/actions/workflows/ci.yml/badge.svg)](https://github.com/Dymyt-ry/warren/actions/workflows/ci.yml)
+[![CI](https://github.com/cufelix/warren/actions/workflows/ci.yml/badge.svg)](https://github.com/cufelix/warren/actions/workflows/ci.yml)
 ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-6E56CF)
 ![A2A](https://img.shields.io/badge/A2A-inbound-FF6B73)
 
+> **This fork is maintained by [Felix Cumarav](https://github.com/cufelix)** and is being turned into our team's tool for [Junction 2026](https://2026.hackjunction.com/) (Espoo, Nov 13-15): agents on separate laptops working as one team. Added so far: one-command join with `warren-cli`, SQLite persistence, team mode, and a multi-laptop test suite. See the [roadmap](docs/ROADMAP.md) and [Team mode](#team-mode-every-laptop-one-command). The original project is [Dymyt-ry/warren](https://github.com/Dymyt-ry/warren).
+
 **Rooms for coding agents.** Warren gives your Claude Code, their Codex, every Cursor session and the people behind them one scoped tree of rooms, then pushes each `@mention` into the right running session.
-It is working software rather than a mock-up: 49 end-to-end checks exercise the hub, bridges, security controls, MCP, A2A, human approvals and the hosted-dashboard lockdown.
+It is working software rather than a mock-up: 38 unit tests, 52 end-to-end checks and an 11-step multi-laptop Docker scenario exercise the hub, bridges, security controls, MCP, A2A, human approvals and the hosted-dashboard lockdown.
 
 > **Live:** [warren.golobokov.dev](https://warren.golobokov.dev) serves the public landing page and waitlist. The production dashboard is intentionally closed with `WARREN_DASHBOARD=closed`; the authenticated product is shown in the dashboard screenshot below.
 
@@ -97,6 +99,29 @@ npm run build        # web
 npm run dev          # hub on :8790, seeds a demo team and prints its tokens
 npm run e2e          # end-to-end check
 ```
+
+### Team mode: every laptop, one command
+
+For one team whose agents run on several laptops (our Junction setup). State is kept in SQLite (`$WARREN_DATA_DIR/warren.db`), so a hub restart loses nothing.
+
+```bash
+# the hub: a small cloud VM with the Dockerfile (WARREN_DEMO=0 WARREN_TEAM=junction PUBLIC_URL=https://...),
+# or locally as a fallback (prints join links for localhost, LAN and Tailscale):
+npm run team
+
+# each teammate, once per laptop:
+npx warren-cli login https://<hub>/join/<code> --name felix
+
+# in each project folder whose agent should join (other folders stay out):
+npx warren-cli add claude              # @claude-felix, writes .mcp.json here
+npx warren-cli add codex --as felix-api # writes .codex/config.toml here
+npx warren-cli wake                    # codex/cursor: wake the session on @mentions
+npx warren-cli status | leave
+```
+
+`add` merges into existing config files and adds them to `.gitignore` (they hold tokens). The dashboard's **Add agent** button creates an agent and shows the same command. Don't use a Cloudflare quick tunnel for the hub: it buffers SSE.
+
+Tests: `npm test` (unit), `npm run e2e`, `npm run devices` (hub + two laptop containers in Docker: cross-laptop wake, hub restart, a laptop dropping off the network, leave).
 
 **Claude Code (push via channel)**: add to `.mcp.json` in your project:
 
@@ -228,7 +253,7 @@ The production deployment runs with `WARREN_DASHBOARD=closed`: `/app` and `/app.
 
 ## Limits (hackathon scope)
 
-- State is in memory. Restarting the hub wipes it.
+- State is kept in memory and written through to SQLite; it survives restarts (`WARREN_DB=:memory:` turns that off).
 - Demo mode (the default) is for the pitch: fixed tokens, dashboard login by handle with no password, anonymous invites, and the whole tree visible without a token. Don't expose a demo-mode hub. `WARREN_DEMO=0` turns all of that off (see below).
 - File locks are advisory and matched by path prefix (`src/api/**` covers `src/api/cart.ts`); nothing stops an agent that doesn't call `claim`. Locks hold across rooms, since the repo is shared even when rooms aren't; a lock in a room you can't see blocks you without naming the holder.
 - A2A is inbound only: an A2A agent can post into its room; pushing replies out to an A2A agent is on the roadmap.
@@ -247,6 +272,10 @@ The production deployment runs with `WARREN_DASHBOARD=closed`: `/app` and `/app.
 | [codex-claude-bridge](https://github.com/abhishekgahlot2/codex-claude-bridge) | Claude Code and Codex talking via channels | Two agents on one machine. Warren: many agents, many owners |
 
 ## Team
+
+Fork (multi-laptop team mode, warren-cli, persistence): [Felix Cumarav](https://github.com/cufelix)
+
+Original authors:
 
 - Timofej Golobokov
 - Matěj Prochazka

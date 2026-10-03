@@ -1,0 +1,107 @@
+// The bridge's SSE subscription: after a reconnect it replays what it missed
+// by message id, never by the laptop's clock, and delivers each message once.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { subscribe, type HubMessage } from "../src/sse.js";
+
+const msg = (id: string, at: string): HubMessage => ({ id, roomId: "r", from: "x", kind: "note", text: id, mentions: ["me"], mentionsRoom: false, at });
+
+test("stops for good when the hub says the token is gone (401)", async () => {
+  let hits = 0;
+  const server = createServer((_req, res) => {
+    hits++;
+    res.writeHead(401).end('{"error":"unknown token"}');
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const hub = `http://localhost:${(server.address() as AddressInfo).port}`;
+  const done = subscribe(hub, "gone", () => {}, { retryMs: 10 });
+  const result = await Promise.race([done.then(() => "returned"), new Promise((r) => setTimeout(() => r("still looping"), 1000))]);
+  server.close();
+  assert.equal(result, "returned");
+  assert.equal(hits, 1);
+});
+
+test("reconnects when a stream goes silent (dead Wi-Fi), then replays what it missed", async () => {
+  // The hub pings every 15 s. A connection that sends nothing at all is dead even
+  // if the socket looks open: the bridge must give up on it and reconnect.
+  const history = [msg("m0", "2026-01-01T00:00:00.000Z")];
+  let connects = 0;
+  const server = createServer((req, res) => {
+    const url = new URL(req.url!, "http://x");
+    if (url.pathname === "/api/inbox") {
+      const since = url.searchParams.get("since");
+      const idx = since ? history.findIndex((m) => m.id === since) : -1;
+      return void res.end(JSON.stringify(history.slice(idx + 1)));
+    }
+    connects++;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(": connected\n\n");
+    // ...and then silence: no pings, no close.
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const hub = `http://localhost:${(server.address() as AddressInfo).port}`;
+  const got: string[] = [];
+  const ctl = new AbortController();
+  void subscribe(hub, "tok", (m) => void got.push(m.id), { signal: ctl.signal, retryMs: 20, idleMs: 200 });
+  for (let i = 0; i < 50 && connects < 1; i++) await new Promise((r) => setTimeout(r, 20));
+  history.push(msg("m1", "2026-01-01T00:00:01.000Z")); // posted into the dead stream's silence
+  for (let i = 0; i < 100 && got.length < 1; i++) await new Promise((r) => setTimeout(r, 20));
+  ctl.abort();
+  server.closeAllConnections();
+  server.close();
+  assert.ok(connects >= 2, `reconnected after silence (connects: ${connects})`);
+  assert.deepEqual(got, ["m1"]);
+});
+
+test("replays missed mentions by id after a reconnect, once each", async () => {
+  // Server timestamps far in the past: a time-based replay would drop m2.
+  const history = [msg("m0", "2000-01-01T00:00:00.000Z")];
+  const inboxQueries: string[] = [];
+  let stream: ServerResponse | undefined;
+  let connects = 0;
+  const server = createServer((req, res) => {
+    const url = new URL(req.url!, "http://x");
+    if (url.pathname === "/api/inbox") {
+      inboxQueries.push(url.search);
+      const since = url.searchParams.get("since");
+      const idx = since ? history.findIndex((m) => m.id === since) : -1;
+      return void res.end(JSON.stringify(history.slice(idx + 1)));
+    }
+    connects++;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.write(": connected\n\n");
+    stream = res;
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const hub = `http://localhost:${(server.address() as AddressInfo).port}`;
+
+  const got: string[] = [];
+  const ctl = new AbortController();
+  void subscribe(hub, "tok", (m) => void got.push(m.id), { signal: ctl.signal, retryMs: 50 });
+  const until = async (ok: () => boolean) => {
+    for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
+  };
+
+  await until(() => connects === 1);
+  const m1 = msg("m1", "2000-01-01T00:00:01.000Z");
+  history.push(m1);
+  stream!.write(`event: message\ndata: ${JSON.stringify(m1)}\n\n`);
+  await until(() => got.length === 1);
+
+  // Stream drops; m2 arrives while the bridge is away.
+  stream!.destroy();
+  history.push(msg("m2", "2000-01-01T00:00:02.000Z"));
+  await until(() => connects === 2 && got.length === 2);
+  // The live stream repeats m2 as well: still delivered once.
+  stream!.write(`event: message\ndata: ${JSON.stringify(history[2])}\n\n`);
+  await new Promise((r) => setTimeout(r, 100));
+
+  ctl.abort();
+  stream!.destroy();
+  server.close();
+  assert.deepEqual(got, ["m1", "m2"], "m0 was history before start, m1 live, m2 replayed");
+  assert.equal(inboxQueries[0], "?all=1", "primes the cursor from history without delivering it");
+  assert.equal(inboxQueries.at(-1), "?since=m1", "replays from the last id it knows");
+});

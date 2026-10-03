@@ -18,6 +18,11 @@ export interface HubMessage {
 export interface SubscribeOptions {
   signal?: AbortSignal; // stops the loop (tests)
   retryMs?: number;
+  /**
+   * The hub pings every 15 s. A stream that sends nothing for this long is dead
+   * even if its socket looks open (Wi-Fi dropped or roamed): reconnect and replay.
+   */
+  idleMs?: number;
 }
 
 const SEEN_MAX = 1000;
@@ -26,7 +31,7 @@ export async function subscribe(
   hub: string,
   token: string,
   onMessage: (m: HubMessage) => void | Promise<void>,
-  { signal, retryMs = 1000 }: SubscribeOptions = {},
+  { signal, retryMs = 1000, idleMs = 45_000 }: SubscribeOptions = {},
 ) {
   const auth = { Authorization: `Bearer ${token}` };
   const inbox = (query: string): Promise<HubMessage[]> =>
@@ -51,6 +56,11 @@ export async function subscribe(
     // One controller per attempt, so a failed replay never leaves the stream open (and the member "online").
     const attempt = new AbortController();
     const both = signal ? AbortSignal.any([signal, attempt.signal]) : attempt.signal;
+    let idle: NodeJS.Timeout | undefined;
+    const resetIdle = () => {
+      clearTimeout(idle);
+      idle = setTimeout(() => attempt.abort(new Error(`no data from the hub for ${idleMs / 1000} s`)), idleMs);
+    };
     try {
       const res = await fetch(`${hub}/api/events?mentions=1`, { headers: { ...auth, Accept: "text/event-stream" }, signal: both });
       if (res.status === 401 || res.status === 403) {
@@ -67,7 +77,9 @@ export async function subscribe(
       }
       const decoder = new TextDecoder();
       let buffer = "";
+      resetIdle();
       for await (const chunk of res.body) {
+        resetIdle();
         buffer += decoder.decode(chunk as Uint8Array, { stream: true });
         let end;
         while ((end = buffer.indexOf("\n\n")) !== -1) {
@@ -84,6 +96,7 @@ export async function subscribe(
       // stderr only: stdout belongs to the MCP stdio transport
       console.error(`warren-bridge: ${(e as Error).message}, reconnecting`);
     } finally {
+      clearTimeout(idle);
       attempt.abort();
     }
     await new Promise((r) => setTimeout(r, retryMs));

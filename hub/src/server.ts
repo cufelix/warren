@@ -377,7 +377,9 @@ app.get("/api/events", (req: Request, res: Response) => {
     if (!mentionsOnly && knows(pm.handle)) send("member", pm);
   };
   // Sent to everyone: the member is gone, so there's no room left to check.
+  // The removed member's own streams end: its bridge reconnects, gets 401 and stops.
   const onMemberRemoved = (handle: string) => {
+    if (m?.handle === handle) return void res.end();
     if (!mentionsOnly) send("member_removed", { handle });
   };
   const onPresence = (p: { handle: string; online: boolean }) => {
@@ -405,7 +407,7 @@ app.get("/api/events", (req: Request, res: Response) => {
     store.events.off("presence", onPresence);
     store.events.off("member_removed", onMemberRemoved);
     store.events.off("audit", onAudit);
-    if (m) store.trackConnection(m, -1);
+    if (m && store.getMember(m.handle) === m) store.trackConnection(m, -1);
   });
 });
 

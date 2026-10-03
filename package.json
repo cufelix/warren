@@ -15,7 +15,8 @@
     "typecheck": "tsc -p hub && tsc -p bridge",
     "test": "node --import tsx --test --test-reporter=spec \"hub/test/*.test.ts\" \"bridge/test/*.test.ts\"",
     "team": "WARREN_DEMO=0 WARREN_TEAM=${WARREN_TEAM:-junction} tsx hub/src/server.ts",
-    "devices": "tsx e2e/devices/run.ts"
+    "devices": "tsx e2e/devices/run.ts",
+    "vms": "tsx e2e/vms/run.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

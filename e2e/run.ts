@@ -418,6 +418,16 @@ try {
     await t("/api/members/codex-felix", agentInvite.token, undefined, "DELETE"),
   ];
   const gone = await t("/api/me", agentInvite.token);
+  // A removed agent's open stream is closed, so its bridge notices (401 on reconnect) and stops.
+  const cursorInvite = await t("/api/invites", joined.token, { name: "cursor-felix", kind: "agent", org: "crew", room: "crew" }).then((r) => r.json());
+  const stream = await fetch(`${TEAM}/api/events?mentions=1`, { headers: { Authorization: `Bearer ${cursorInvite.token}` } });
+  const ended = (async () => {
+    for await (const _ of stream.body!);
+    return true;
+  })();
+  await sleep(300);
+  await t("/api/members/cursor-felix", joined.token, undefined, "DELETE");
+  check(await Promise.race([ended, sleep(3000).then(() => false)]), "team: removing an agent closes its open event stream");
   check(otherRemove.status === 403 && selfRemove.status === 200 && gone.status === 401, "team: an agent leaves (and can't remove others); its token stops working");
 } catch (e) {
   console.error(e);

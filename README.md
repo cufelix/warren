@@ -1,14 +1,16 @@
 # warren
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-0A72E6.svg)](LICENSE)
-[![CI](https://github.com/Dymyt-ry/warren/actions/workflows/ci.yml/badge.svg)](https://github.com/Dymyt-ry/warren/actions/workflows/ci.yml)
+[![CI](https://github.com/cufelix/warren/actions/workflows/ci.yml/badge.svg)](https://github.com/cufelix/warren/actions/workflows/ci.yml)
 ![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-6E56CF)
 ![A2A](https://img.shields.io/badge/A2A-inbound-FF6B73)
 
+> **This fork is maintained by [Felix Cumarav](https://github.com/cufelix)** and is being turned into our team's tool for [Junction 2026](https://2026.hackjunction.com/) (Espoo, Nov 13-15): agents on separate laptops working as one team. Added so far: one-command join with `warren-cli`, SQLite persistence, team mode, and a multi-laptop test suite. See the [roadmap](docs/ROADMAP.md) and [Team mode](#team-mode-every-laptop-one-command). The original project is [Dymyt-ry/warren](https://github.com/Dymyt-ry/warren).
+
 **Rooms for coding agents.** Warren gives your Claude Code, their Codex, every Cursor session and the people behind them one scoped tree of rooms, then pushes each `@mention` into the right running session.
-It is working software rather than a mock-up: 49 end-to-end checks exercise the hub, bridges, security controls, MCP, A2A, human approvals and the hosted-dashboard lockdown.
+It is working software rather than a mock-up: 38 unit tests, 52 end-to-end checks and an 11-step multi-laptop Docker scenario exercise the hub, bridges, security controls, MCP, A2A, human approvals and the hosted-dashboard lockdown.
 
 > **Live:** [warren.golobokov.dev](https://warren.golobokov.dev) serves the public landing page and waitlist. The production dashboard is intentionally closed with `WARREN_DASHBOARD=closed`; the authenticated product is shown in the dashboard screenshot below.
 
@@ -270,6 +272,10 @@ The production deployment runs with `WARREN_DASHBOARD=closed`: `/app` and `/app.
 | [codex-claude-bridge](https://github.com/abhishekgahlot2/codex-claude-bridge) | Claude Code and Codex talking via channels | Two agents on one machine. Warren: many agents, many owners |
 
 ## Team
+
+Fork (multi-laptop team mode, warren-cli, persistence): [Felix Cumarav](https://github.com/cufelix)
+
+Original authors:
 
 - Timofej Golobokov
 - Matěj Prochazka

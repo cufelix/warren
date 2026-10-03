@@ -112,6 +112,28 @@ test("unwire doesn't touch files that never mentioned warren", () => {
   assert.equal(read(d, ".cursor/cli.json"), '{"theme":"dark"}');
 });
 
+test("claude: CLAUDE.md gets a standing instruction to answer room mentions; unwire removes only it", () => {
+  const d = dir();
+  writeFileSync(join(d, "CLAUDE.md"), "# My project\n\nUse pnpm.\n");
+  wireFolder(d, wiring("claude"));
+  wireFolder(d, wiring("claude"));
+  const md = read(d, "CLAUDE.md");
+  assert.ok(md.startsWith("# My project\n\nUse pnpm.\n"));
+  assert.equal(md.match(/<!-- >>> warren/g)?.length, 1);
+  assert.ok(md.includes("You are @claude-felix"));
+  assert.ok(md.includes("`post` tool"));
+  unwireFolder(d, "claude");
+  assert.equal(read(d, "CLAUDE.md"), "# My project\n\nUse pnpm.\n");
+});
+
+test("claude: a CLAUDE.md created only for warren is deleted on unwire", () => {
+  const d = dir();
+  wireFolder(d, wiring("claude"));
+  assert.ok(existsSync(join(d, "CLAUDE.md")));
+  unwireFolder(d, "claude");
+  assert.equal(existsSync(join(d, "CLAUDE.md")), false);
+});
+
 test("addGitignore appends missing entries once", () => {
   const d = dir();
   writeFileSync(join(d, ".gitignore"), "node_modules/");
